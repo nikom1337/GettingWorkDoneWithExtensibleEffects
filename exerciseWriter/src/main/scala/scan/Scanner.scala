@@ -60,11 +60,17 @@ object Scanner {
 
   } yield ReportFormat.largeFilesReport(scan, base.toString)
 
-  def pathScan[R: _task: _filesystem: _config: _log](path: FilePath): Eff[R, PathScan] = path match {
+  def pathScan[R: _task: _filesystem: _config: _log](path: FilePath): Eff[R, PathScan] = for {
+    _ <- tell(Log.info(s"Scan started on Directory(${path.path})"))
+    result <- pathScanRecursive(path)
+  } yield result
+
+  def pathScanRecursive[R: _task: _filesystem: _config: _log](path: FilePath): Eff[R, PathScan] = path match {
 
     case f: File =>
       for {
         fs <- FileSize.ofFile(f)
+        _ <- tell(Log.debug(s"File ${f.path} Size ${fs.size} B"))
       } yield PathScan(SortedSet(fs), fs.size, 1)
 
     case dir: Directory =>
@@ -72,7 +78,7 @@ object Scanner {
         filesystem <- ask[R, Filesystem]
         topN <- takeTopN
         fileList <- taskDelay(filesystem.listFiles(dir))
-        childScans <- fileList.traverse(pathScan[R](_))
+        childScans <- fileList.traverse(pathScanRecursive[R](_))
         _ <- {
           val dirCount = fileList.count(_.isInstanceOf[Directory])
           val fileCount = fileList.count(_.isInstanceOf[File])
